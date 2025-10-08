@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 
 // User interface - defines what information each user has
 export interface User {
@@ -70,6 +71,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(userWithoutPassword);
       localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
 
+      // Send registration email notification
+      try {
+        await supabase.functions.invoke('send-auth-email', {
+          body: {
+            email: userWithoutPassword.email,
+            name: userWithoutPassword.name,
+            type: 'registration'
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send registration email:', emailError);
+      }
+
       return { success: true };
     } catch (error) {
       return { success: false, error: 'Registration failed' };
@@ -95,6 +109,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { password: _, ...userWithoutPassword } = foundUser;
       setUser(userWithoutPassword);
       localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
+
+      // Send login email notification
+      try {
+        await supabase.functions.invoke('send-auth-email', {
+          body: {
+            email: userWithoutPassword.email,
+            name: userWithoutPassword.name,
+            type: 'login'
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send login email:', emailError);
+      }
 
       return { success: true };
     } catch (error) {
