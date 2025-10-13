@@ -87,12 +87,14 @@ const handler = async (req: Request): Promise<Response> => {
         </div>
       `;
 
-    const emailResponse = await resend.emails.send({
-      from: "ShareSpace <onboarding@resend.dev>",
-      to: [email],
-      subject: subject,
-      html: html,
-    });
+     const emailResponse = await resend.emails.send({
+       from: "ShareSpace <onboarding@resend.dev>",
+       to: [Deno.env.get("TEST_EMAIL_OVERRIDE")?.trim() || email],
+       subject: Deno.env.get("TEST_EMAIL_OVERRIDE") ? ('[TEST] ' + subject + ' (intended: ' + email + ')') : subject,
+       html: Deno.env.get("TEST_EMAIL_OVERRIDE")
+         ? '<p style="font-size:12px;color:#666;margin:0 0 8px 0;">TEST MODE: Intended recipient: ' + email + '</p>' + html
+         : html,
+     });
 
     console.log("Email sent successfully:", emailResponse);
 
