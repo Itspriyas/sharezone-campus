@@ -87,11 +87,41 @@ const handler = async (req: Request): Promise<Response> => {
         </div>
       `;
 
+     // Safely determine and validate recipient
+     const overrideRaw = Deno.env.get("TEST_EMAIL_OVERRIDE")?.trim() || '';
+
+     const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+     const normalizeRecipient = (val: string): string | null => {
+       if (!val) return null;
+       const t = val.trim();
+       const lt = t.indexOf('<');
+       const gt = t.indexOf('>');
+       if (lt !== -1 && gt !== -1 && gt > lt + 1) {
+         const emailPart = t.slice(lt + 1, gt).trim();
+         return isValidEmail(emailPart) ? t : null;
+       }
+       return isValidEmail(t) ? t : null;
+     };
+
+     const candidate = overrideRaw || email;
+     const recipient = normalizeRecipient(candidate);
+     const inTestMode = Boolean(overrideRaw && normalizeRecipient(overrideRaw));
+
+     if (!recipient) {
+       console.error('Invalid recipient format provided:', candidate);
+       return new Response(
+         JSON.stringify({ error: 'Invalid recipient email format. Use "email@example.com" or "Name <email@example.com>".' }),
+         { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+       );
+     }
+
+     console.log(`Computed recipient: ${recipient} (test mode: ${inTestMode})`);
+
      const emailResponse = await resend.emails.send({
        from: "ShareSpace <onboarding@resend.dev>",
-       to: [Deno.env.get("TEST_EMAIL_OVERRIDE")?.trim() || email],
-       subject: Deno.env.get("TEST_EMAIL_OVERRIDE") ? ('[TEST] ' + subject + ' (intended: ' + email + ')') : subject,
-       html: Deno.env.get("TEST_EMAIL_OVERRIDE")
+       to: [recipient],
+       subject: inTestMode ? ('[TEST] ' + subject + ' (intended: ' + email + ')') : subject,
+       html: inTestMode
          ? '<p style="font-size:12px;color:#666;margin:0 0 8px 0;">TEST MODE: Intended recipient: ' + email + '</p>' + html
          : html,
      });
