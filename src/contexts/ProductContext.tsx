@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
 
-// Product interface - defines what information each product has
 export interface Product {
   id: string;
   title: string;
@@ -35,78 +36,109 @@ export const useProducts = () => {
   return context;
 };
 
-// Provider component
 export const ProductProvider = ({ children }: { children: ReactNode }) => {
   const [products, setProducts] = useState<Product[]>([]);
+  const { user } = useAuth();
 
-  // Load products from localStorage when app starts
-  useEffect(() => {
-    const storedProducts = localStorage.getItem('products');
-    if (storedProducts) {
-      setProducts(JSON.parse(storedProducts));
-    } else {
-      // Initialize with some dummy products for demo
-      const dummyProducts: Product[] = [
-        {
-          id: '1',
-          title: 'Engineering Textbook Bundle',
-          description: 'Complete set of first-year engineering books in excellent condition',
-          price: 2500,
-          category: 'Books',
-          condition: 'Like New',
-          image: 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=400',
-          sellerId: 'demo',
-          sellerName: 'Demo User',
-          createdAt: new Date().toISOString(),
-          status: 'active',
-        },
-        {
-          id: '2',
-          title: 'Scientific Calculator',
-          description: 'Casio FX-991EX calculator, barely used',
-          price: 800,
-          category: 'Electronics',
-          condition: 'Like New',
-          image: 'https://images.unsplash.com/photo-1587145820266-a5951ee6f620?w=400',
-          sellerId: 'demo',
-          sellerName: 'Demo User',
-          createdAt: new Date().toISOString(),
-          status: 'active',
-        },
-      ];
-      setProducts(dummyProducts);
-      localStorage.setItem('products', JSON.stringify(dummyProducts));
+  const fetchProducts = async () => {
+    const { data, error } = await supabase
+      .from('products')
+      .select(`
+        *,
+        profiles!products_seller_id_fkey(full_name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching products:', error);
+      return;
     }
+
+    const formattedProducts: Product[] = data.map((p: any) => ({
+      id: p.id,
+      title: p.title,
+      description: p.description,
+      price: parseFloat(p.price),
+      category: p.category,
+      condition: p.condition,
+      image: p.image,
+      sellerId: p.seller_id,
+      sellerName: p.profiles?.full_name || 'Unknown',
+      createdAt: p.created_at,
+      status: p.status,
+    }));
+
+    setProducts(formattedProducts);
+  };
+
+  useEffect(() => {
+    fetchProducts();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('products-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'products',
+        },
+        () => {
+          fetchProducts();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  // Add new product
-  const addProduct = (productData: Omit<Product, 'id' | 'createdAt' | 'status'>) => {
-    const newProduct: Product = {
-      ...productData,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      status: 'active',
-    };
+  const addProduct = async (productData: Omit<Product, 'id' | 'createdAt' | 'status'>) => {
+    if (!user) throw new Error('Must be logged in to add products');
 
-    const updatedProducts = [...products, newProduct];
-    setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+    const { error } = await supabase.from('products').insert({
+      title: productData.title,
+      description: productData.description,
+      price: productData.price,
+      category: productData.category,
+      condition: productData.condition,
+      image: productData.image,
+      seller_id: productData.sellerId,
+    });
+
+    if (error) throw error;
+    await fetchProducts();
   };
 
-  // Update existing product
-  const updateProduct = (id: string, updates: Partial<Product>) => {
-    const updatedProducts = products.map(product =>
-      product.id === id ? { ...product, ...updates } : product
-    );
-    setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+  const updateProduct = async (id: string, updates: Partial<Product>) => {
+    const dbUpdates: any = {};
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.price !== undefined) dbUpdates.price = updates.price;
+    if (updates.category !== undefined) dbUpdates.category = updates.category;
+    if (updates.condition !== undefined) dbUpdates.condition = updates.condition;
+    if (updates.image !== undefined) dbUpdates.image = updates.image;
+    if (updates.status !== undefined) dbUpdates.status = updates.status;
+
+    const { error } = await supabase
+      .from('products')
+      .update(dbUpdates)
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchProducts();
   };
 
-  // Delete product
-  const deleteProduct = (id: string) => {
-    const updatedProducts = products.filter(product => product.id !== id);
-    setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+  const deleteProduct = async (id: string) => {
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchProducts();
   };
 
   // Get single product by ID

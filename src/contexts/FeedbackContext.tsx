@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
 
-// Feedback interface
 export interface Feedback {
   id: string;
   userId: string;
@@ -15,14 +16,13 @@ export interface Feedback {
 
 interface FeedbackContextType {
   feedbacks: Feedback[];
-  submitFeedback: (feedback: Omit<Feedback, 'id' | 'timestamp' | 'status'>) => void;
-  updateFeedbackStatus: (id: string, status: Feedback['status']) => void;
-  deleteFeedback: (id: string) => void;
+  submitFeedback: (feedback: Omit<Feedback, 'id' | 'timestamp' | 'status'>) => Promise<void>;
+  updateFeedbackStatus: (id: string, status: Feedback['status']) => Promise<void>;
+  deleteFeedback: (id: string) => Promise<void>;
 }
 
 const FeedbackContext = createContext<FeedbackContextType | undefined>(undefined);
 
-// Hook to use feedback throughout the app
 export const useFeedback = () => {
   const context = useContext(FeedbackContext);
   if (!context) {
@@ -31,46 +31,76 @@ export const useFeedback = () => {
   return context;
 };
 
-// Provider component
 export const FeedbackProvider = ({ children }: { children: ReactNode }) => {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const { user } = useAuth();
 
-  // Load feedbacks from localStorage
-  useEffect(() => {
-    const storedFeedbacks = localStorage.getItem('feedbacks');
-    if (storedFeedbacks) {
-      setFeedbacks(JSON.parse(storedFeedbacks));
+  const fetchFeedback = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('feedback')
+      .select(`
+        *,
+        profiles!feedback_user_id_fkey(full_name, email)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching feedback:', error);
+      return;
     }
-  }, []);
 
-  // Submit new feedback
-  const submitFeedback = (feedbackData: Omit<Feedback, 'id' | 'timestamp' | 'status'>) => {
-    const newFeedback: Feedback = {
-      ...feedbackData,
-      id: Date.now().toString(),
-      timestamp: new Date().toISOString(),
-      status: 'pending',
-    };
+    const formatted: Feedback[] = data.map((f: any) => ({
+      id: f.id,
+      userId: f.user_id,
+      userName: f.profiles?.full_name || 'Unknown',
+      userEmail: f.profiles?.email || '',
+      subject: f.category,
+      message: f.message,
+      category: f.category,
+      timestamp: f.created_at,
+      status: f.status,
+    }));
 
-    const updatedFeedbacks = [...feedbacks, newFeedback];
-    setFeedbacks(updatedFeedbacks);
-    localStorage.setItem('feedbacks', JSON.stringify(updatedFeedbacks));
+    setFeedbacks(formatted);
   };
 
-  // Update feedback status (admin only)
-  const updateFeedbackStatus = (id: string, status: Feedback['status']) => {
-    const updatedFeedbacks = feedbacks.map(feedback =>
-      feedback.id === id ? { ...feedback, status } : feedback
-    );
-    setFeedbacks(updatedFeedbacks);
-    localStorage.setItem('feedbacks', JSON.stringify(updatedFeedbacks));
+  useEffect(() => {
+    fetchFeedback();
+  }, [user]);
+
+  const submitFeedback = async (feedbackData: Omit<Feedback, 'id' | 'timestamp' | 'status'>) => {
+    if (!user) throw new Error('Must be logged in to submit feedback');
+
+    const { error } = await supabase.from('feedback').insert({
+      user_id: feedbackData.userId,
+      message: feedbackData.message,
+      category: feedbackData.category,
+    });
+
+    if (error) throw error;
+    await fetchFeedback();
   };
 
-  // Delete feedback (admin only)
-  const deleteFeedback = (id: string) => {
-    const updatedFeedbacks = feedbacks.filter(feedback => feedback.id !== id);
-    setFeedbacks(updatedFeedbacks);
-    localStorage.setItem('feedbacks', JSON.stringify(updatedFeedbacks));
+  const updateFeedbackStatus = async (id: string, status: Feedback['status']) => {
+    const { error } = await supabase
+      .from('feedback')
+      .update({ status })
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchFeedback();
+  };
+
+  const deleteFeedback = async (id: string) => {
+    const { error } = await supabase
+      .from('feedback')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    await fetchFeedback();
   };
 
   return (

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
 
-// Message interface
 export interface Message {
   id: string;
   conversationId: string;
@@ -10,11 +11,10 @@ export interface Message {
   timestamp: string;
 }
 
-// Conversation interface
 export interface Conversation {
   id: string;
-  participants: string[]; // Array of user IDs
-  participantNames: { [key: string]: string }; // Map of user ID to name
+  participants: string[];
+  participantNames: { [key: string]: string };
   productId?: string;
   productTitle?: string;
   lastMessage?: string;
@@ -24,16 +24,15 @@ export interface Conversation {
 interface ChatContextType {
   conversations: Conversation[];
   messages: Message[];
-  createConversation: (otherUserId: string, otherUserName: string, productId?: string, productTitle?: string) => string;
-  sendMessage: (conversationId: string, senderId: string, senderName: string, text: string) => void;
+  createConversation: (otherUserId: string, otherUserName: string, productId?: string, productTitle?: string) => Promise<string>;
+  sendMessage: (conversationId: string, senderId: string, senderName: string, text: string) => Promise<void>;
   getConversation: (conversationId: string) => Conversation | undefined;
-  getConversationMessages: (conversationId: string) => Message[];
+  getConversationMessages: (conversationId: string) => Promise<Message[]>;
   getUserConversations: (userId: string) => Conversation[];
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
-// Hook to use chat throughout the app
 export const useChat = () => {
   const context = useContext(ChatContext);
   if (!context) {
@@ -42,111 +41,180 @@ export const useChat = () => {
   return context;
 };
 
-// Provider component
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const { user } = useAuth();
 
-  // Load data from localStorage
+  const fetchConversations = async () => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from('conversations')
+      .select(`
+        *,
+        buyer:profiles!conversations_buyer_id_fkey(id, full_name),
+        seller:profiles!conversations_seller_id_fkey(id, full_name),
+        product:products(id, title)
+      `)
+      .or(`buyer_id.eq.${user.id},seller_id.eq.${user.id}`)
+      .order('last_message_time', { ascending: false, nullsFirst: false });
+
+    if (error) {
+      console.error('Error fetching conversations:', error);
+      return;
+    }
+
+    const formatted: Conversation[] = data.map((c: any) => {
+      const otherUserId = c.buyer_id === user.id ? c.seller_id : c.buyer_id;
+      const otherUserName = c.buyer_id === user.id ? c.seller?.full_name : c.buyer?.full_name;
+      
+      return {
+        id: c.id,
+        participants: [otherUserId],
+        participantNames: { [otherUserId]: otherUserName || 'Unknown' },
+        productId: c.product_id,
+        productTitle: c.product?.title || 'Unknown Product',
+        lastMessage: c.last_message,
+        lastMessageTime: c.last_message_time,
+      };
+    });
+
+    setConversations(formatted);
+  };
+
+  const fetchMessages = async (conversationId: string) => {
+    const { data, error } = await supabase
+      .from('messages')
+      .select(`
+        *,
+        profiles!messages_sender_id_fkey(full_name)
+      `)
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching messages:', error);
+      return [];
+    }
+
+    return data.map((m: any) => ({
+      id: m.id,
+      conversationId: m.conversation_id,
+      senderId: m.sender_id,
+      senderName: m.profiles?.full_name || 'Unknown',
+      text: m.text,
+      timestamp: m.created_at,
+    }));
+  };
+
   useEffect(() => {
-    const storedConversations = localStorage.getItem('conversations');
-    const storedMessages = localStorage.getItem('messages');
-    
-    if (storedConversations) {
-      setConversations(JSON.parse(storedConversations));
-    }
-    if (storedMessages) {
-      setMessages(JSON.parse(storedMessages));
-    }
-  }, []);
+    if (!user) return;
 
-  // Create a new conversation
-  const createConversation = (
+    fetchConversations();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('messages-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+        },
+        () => {
+          fetchConversations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  const createConversation = async (
     otherUserId: string,
     otherUserName: string,
     productId?: string,
     productTitle?: string
-  ) => {
+  ): Promise<string> => {
+    if (!user) throw new Error('Must be logged in');
+
     // Check if conversation already exists
-    const existing = conversations.find(conv =>
-      conv.participants.includes(otherUserId)
-    );
+    const { data: existing } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('buyer_id', user.id)
+      .eq('seller_id', otherUserId)
+      .eq('product_id', productId || '')
+      .maybeSingle();
 
     if (existing) {
       return existing.id;
     }
 
     // Create new conversation
-    const newConversation: Conversation = {
-      id: Date.now().toString(),
-      participants: [otherUserId],
-      participantNames: { [otherUserId]: otherUserName },
-      productId,
-      productTitle,
-    };
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert({
+        buyer_id: user.id,
+        seller_id: otherUserId,
+        product_id: productId,
+      })
+      .select()
+      .single();
 
-    const updatedConversations = [...conversations, newConversation];
-    setConversations(updatedConversations);
-    localStorage.setItem('conversations', JSON.stringify(updatedConversations));
-
-    return newConversation.id;
+    if (error) throw error;
+    await fetchConversations();
+    return data.id;
   };
 
-  // Send a message
-  const sendMessage = (
+  const sendMessage = async (
     conversationId: string,
     senderId: string,
     senderName: string,
     text: string
   ) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      conversationId,
-      senderId,
-      senderName,
-      text,
-      timestamp: new Date().toISOString(),
-    };
+    if (!user) throw new Error('Must be logged in');
 
-    const updatedMessages = [...messages, newMessage];
-    setMessages(updatedMessages);
-    localStorage.setItem('messages', JSON.stringify(updatedMessages));
+    const { error: messageError } = await supabase.from('messages').insert({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      text,
+    });
+
+    if (messageError) throw messageError;
 
     // Update conversation's last message
-    const updatedConversations = conversations.map(conv =>
-      conv.id === conversationId
-        ? {
-            ...conv,
-            lastMessage: text,
-            lastMessageTime: newMessage.timestamp,
-          }
-        : conv
-    );
-    setConversations(updatedConversations);
-    localStorage.setItem('conversations', JSON.stringify(updatedConversations));
+    const { error: convError } = await supabase
+      .from('conversations')
+      .update({
+        last_message: text,
+        last_message_time: new Date().toISOString(),
+      })
+      .eq('id', conversationId);
+
+    if (convError) throw convError;
+    await fetchConversations();
   };
 
-  // Get single conversation
   const getConversation = (conversationId: string) => {
     return conversations.find(conv => conv.id === conversationId);
   };
 
-  // Get all messages for a conversation
-  const getConversationMessages = (conversationId: string) => {
-    return messages
-      .filter(msg => msg.conversationId === conversationId)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const getConversationMessages = async (conversationId: string) => {
+    const msgs = await fetchMessages(conversationId);
+    setMessages(prev => {
+      const filtered = prev.filter(m => m.conversationId !== conversationId);
+      return [...filtered, ...msgs];
+    });
+    return msgs;
   };
 
-  // Get all conversations for a user
   const getUserConversations = (userId: string) => {
-    return conversations
-      .filter(conv => conv.participants.includes(userId))
-      .sort((a, b) => {
-        const timeA = a.lastMessageTime ? new Date(a.lastMessageTime).getTime() : 0;
-        const timeB = b.lastMessageTime ? new Date(b.lastMessageTime).getTime() : 0;
-        return timeB - timeA;
-      });
+    return conversations;
   };
 
   return (

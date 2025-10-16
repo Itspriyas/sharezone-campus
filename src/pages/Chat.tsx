@@ -24,11 +24,22 @@ const Chat = () => {
   );
 
   const [messageText, setMessageText] = useState('');
+  const [messages, setMessages] = useState<any[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Get current conversation and messages
+  // Get current conversation
   const currentConversation = selectedConversationId ? getConversation(selectedConversationId) : null;
-  const messages = selectedConversationId ? getConversationMessages(selectedConversationId) : [];
+
+  // Fetch messages when conversation changes
+  useEffect(() => {
+    if (selectedConversationId) {
+      getConversationMessages(selectedConversationId).then(msgs => {
+        setMessages(msgs);
+      });
+    } else {
+      setMessages([]);
+    }
+  }, [selectedConversationId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -36,15 +47,22 @@ const Chat = () => {
   }, [messages]);
 
   // Handle sending a message
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!messageText.trim() || !user || !selectedConversationId) {
       return;
     }
 
-    sendMessage(selectedConversationId, user.id, user.name, messageText.trim());
-    setMessageText('');
+    try {
+      await sendMessage(selectedConversationId, user.id, user.name, messageText.trim());
+      setMessageText('');
+      // Refresh messages
+      const msgs = await getConversationMessages(selectedConversationId);
+      setMessages(msgs);
+    } catch (error) {
+      toast.error('Failed to send message');
+    }
   };
 
   // Get the other person's name in the conversation

@@ -1,11 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
-// User interface - defines what information each user has
 export interface User {
   id: string;
-  name: string;
   email: string;
+  name: string;
   phone: string;
   college: string;
   department: string;
@@ -13,9 +14,9 @@ export interface User {
   isAdmin?: boolean;
 }
 
-// Interface for the authentication context
 interface AuthContextType {
   user: User | null;
+  session: Session | null;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (userData: Omit<User, 'id'> & { password: string }) => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
@@ -24,7 +25,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Hook to use authentication throughout the app
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -33,116 +33,144 @@ export const useAuth = () => {
   return context;
 };
 
-// Provider component that wraps the app
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
-  // Check if user is already logged in when app loads
   useEffect(() => {
-    const storedUser = localStorage.getItem('currentUser');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        
+        if (session?.user) {
+          setTimeout(() => {
+            fetchUserProfile(session.user.id);
+          }, 0);
+        } else {
+          setUser(null);
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Register new user
+  const fetchUserProfile = async (userId: string) => {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*, user_roles(role)')
+      .eq('id', userId)
+      .single();
+    
+    if (profile) {
+      setUser({
+        id: profile.id,
+        email: profile.email,
+        name: profile.full_name,
+        phone: profile.phone || '',
+        college: '',
+        department: '',
+        rollNumber: '',
+        isAdmin: profile.user_roles?.some((r: any) => r.role === 'admin') || false,
+      });
+    }
+  };
+
   const register = async (userData: Omit<User, 'id'> & { password: string }) => {
     try {
-      // Get existing users from localStorage
-      const users = JSON.parse(localStorage.getItem('users') || '[]');
-      
-      // Check if email already exists
-      if (users.find((u: any) => u.email === userData.email)) {
-        return { success: false, error: 'Email already registered' };
+      const { data, error } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: {
+            full_name: userData.name,
+            phone: userData.phone,
+          },
+        },
+      });
+
+      if (error) return { success: false, error: error.message };
+
+      // Send welcome email
+      if (data.user) {
+        try {
+          await supabase.functions.invoke('send-auth-email', {
+            body: {
+              email: userData.email,
+              type: 'registration',
+              name: userData.name,
+            },
+          });
+        } catch (error) {
+          console.error('Failed to send welcome email:', error);
+        }
       }
 
-      // Create new user
-      const newUser: User & { password: string } = {
-        id: Date.now().toString(),
-        ...userData,
-      };
-
-      // Save to localStorage
-      users.push(newUser);
-      localStorage.setItem('users', JSON.stringify(users));
-
-      // Auto-login after registration
-      const { password, ...userWithoutPassword } = newUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
-
-      // Send registration email notification
-      try {
-        await supabase.functions.invoke('send-auth-email', {
-          body: {
-            email: userWithoutPassword.email,
-            name: userWithoutPassword.name,
-            type: 'registration'
-          }
-        });
-      } catch (emailError) {
-        console.error('Failed to send registration email:', emailError);
-      }
-
+      toast.success('Registration successful!');
       return { success: true };
-    } catch (error) {
-      return { success: false, error: 'Registration failed' };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Registration failed' };
     }
   };
 
-  // Login existing user
   const login = async (email: string, password: string) => {
     try {
-      // Get all users
-      const users = JSON.parse(localStorage.getItem('users') || '[]');
-      
-      // Find user with matching credentials
-      const foundUser = users.find(
-        (u: any) => u.email === email && u.password === password
-      );
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      if (!foundUser) {
-        return { success: false, error: 'Invalid email or password' };
+      if (error) return { success: false, error: error.message };
+
+      // Send login notification email
+      if (data.user) {
+        try {
+          await supabase.functions.invoke('send-auth-email', {
+            body: {
+              email: email,
+              type: 'login',
+              name: user?.name || email,
+            },
+          });
+        } catch (error) {
+          console.error('Failed to send login email:', error);
+        }
       }
 
-      // Remove password before setting user state
-      const { password: _, ...userWithoutPassword } = foundUser;
-      setUser(userWithoutPassword);
-      localStorage.setItem('currentUser', JSON.stringify(userWithoutPassword));
-
-      // Send login email notification
-      try {
-        await supabase.functions.invoke('send-auth-email', {
-          body: {
-            email: userWithoutPassword.email,
-            name: userWithoutPassword.name,
-            type: 'login'
-          }
-        });
-      } catch (emailError) {
-        console.error('Failed to send login email:', emailError);
-      }
-
+      toast.success('Login successful!');
       return { success: true };
-    } catch (error) {
-      return { success: false, error: 'Login failed' };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Login failed' };
     }
   };
 
-  // Logout user
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
-    localStorage.removeItem('currentUser');
+    setSession(null);
+    toast.success('Logged out successfully');
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        session,
         login,
         register,
         logout,
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && !!session,
       }}
     >
       {children}
