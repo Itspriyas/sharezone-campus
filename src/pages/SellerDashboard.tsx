@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Seller dashboard - manage products (add, edit, delete)
@@ -105,6 +105,12 @@ const SellerDashboard = () => {
       deleteProduct(productId);
       toast.success('Product deleted');
     }
+  };
+
+  // Handle mark as sold/available toggle
+  const handleToggleSold = (productId: string, currentStatus: boolean) => {
+    updateProduct(productId, { sold: !currentStatus });
+    toast.success(currentStatus ? 'Product marked as available' : 'Product marked as sold');
   };
 
   return (
@@ -269,25 +275,36 @@ const SellerDashboard = () => {
                   </p>
                 </CardContent>
 
-                <CardFooter className="flex gap-2">
+                <CardFooter className="flex flex-col gap-2">
                   <Button
-                    variant="outline"
+                    variant={product.sold ? "default" : "secondary"}
                     size="sm"
-                    className="flex-1 gap-2"
-                    onClick={() => handleEditProduct(product)}
+                    className="w-full gap-2"
+                    onClick={() => handleToggleSold(product.id, product.sold)}
                   >
-                    <Edit className="h-4 w-4" />
-                    Edit
+                    <CheckCircle className="h-4 w-4" />
+                    {product.sold ? 'Mark as Available' : 'Mark as Sold'}
                   </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="flex-1 gap-2"
-                    onClick={() => handleDelete(product.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete
-                  </Button>
+                  <div className="flex gap-2 w-full">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 gap-2"
+                      onClick={() => handleEditProduct(product)}
+                    >
+                      <Edit className="h-4 w-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="flex-1 gap-2"
+                      onClick={() => handleDelete(product.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </Button>
+                  </div>
                 </CardFooter>
               </Card>
             ))}
