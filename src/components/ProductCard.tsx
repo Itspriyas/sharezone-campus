@@ -4,7 +4,7 @@ import { Product } from '@/contexts/ProductContext';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Star, ShieldCheck } from 'lucide-react';
 
 interface ProductCardProps {
   product: Product;
@@ -33,13 +33,22 @@ const ProductCard = ({ product, onChat, showActions = true }: ProductCardProps) 
           onLoad={() => setImageLoaded(true)}
         />
         
-        {/* Condition badge */}
-        <Badge
-          className="absolute top-2 right-2 bg-background/90 backdrop-blur"
-          variant="secondary"
-        >
-          {product.condition}
-        </Badge>
+        {/* Status badges */}
+        <div className="absolute top-2 right-2 flex gap-2">
+          <Badge
+            className="bg-background/90 backdrop-blur"
+            variant="secondary"
+          >
+            {product.condition}
+          </Badge>
+          {product.sold && (
+            <Badge
+              className="bg-destructive/90 backdrop-blur text-destructive-foreground"
+            >
+              Sold Out
+            </Badge>
+          )}
+        </div>
       </div>
 
       <CardContent className="p-4">
@@ -58,10 +67,24 @@ const ProductCard = ({ product, onChat, showActions = true }: ProductCardProps) 
           {product.category}
         </Badge>
 
-        {/* Seller name */}
-        <p className="text-xs text-muted-foreground mt-2">
-          Sold by {product.sellerName}
-        </p>
+        {/* Seller info */}
+        <div className="flex items-center gap-2 mt-2">
+          <p className="text-xs text-muted-foreground">
+            Sold by {product.sellerName}
+          </p>
+          {product.verifiedSeller && (
+            <ShieldCheck className="h-3 w-3 text-primary" />
+          )}
+        </div>
+        
+        {/* Seller rating */}
+        {product.sellerReviews > 0 && (
+          <div className="flex items-center gap-1 mt-1">
+            <Star className="h-3 w-3 fill-primary text-primary" />
+            <span className="text-xs font-medium">{product.sellerRating.toFixed(1)}</span>
+            <span className="text-xs text-muted-foreground">({product.sellerReviews})</span>
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="p-4 pt-0 flex items-center justify-between">

@@ -14,11 +14,15 @@ export interface Product {
   sellerName: string;
   createdAt: string;
   status: 'active' | 'blocked';
+  sold: boolean;
+  sellerRating: number;
+  sellerReviews: number;
+  verifiedSeller: boolean;
 }
 
 interface ProductContextType {
   products: Product[];
-  addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'status'>) => void;
+  addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'status' | 'sold' | 'sellerRating' | 'sellerReviews' | 'verifiedSeller'>) => void;
   updateProduct: (id: string, updates: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
   getProductById: (id: string) => Product | undefined;
@@ -45,7 +49,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
       .from('products')
       .select(`
         *,
-        profiles!products_seller_id_fkey(full_name)
+        profiles!products_seller_id_fkey(full_name, seller_rating, total_reviews, verified_seller)
       `)
       .order('created_at', { ascending: false });
 
@@ -63,9 +67,13 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
       condition: p.condition,
       image: p.image,
       sellerId: p.seller_id,
-      sellerName: p.profiles?.full_name || 'Unknown',
+      sellerName: p.profiles?.full_name || 'Unknown Seller',
       createdAt: p.created_at,
       status: p.status,
+      sold: p.sold || false,
+      sellerRating: parseFloat(p.profiles?.seller_rating) || 0,
+      sellerReviews: p.profiles?.total_reviews || 0,
+      verifiedSeller: p.profiles?.verified_seller || false,
     }));
 
     setProducts(formattedProducts);
@@ -95,7 +103,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
 
-  const addProduct = async (productData: Omit<Product, 'id' | 'createdAt' | 'status'>) => {
+  const addProduct = async (productData: Omit<Product, 'id' | 'createdAt' | 'status' | 'sold' | 'sellerRating' | 'sellerReviews' | 'verifiedSeller'>) => {
     if (!user) throw new Error('Must be logged in to add products');
 
     const { error } = await supabase.from('products').insert({
@@ -121,6 +129,7 @@ export const ProductProvider = ({ children }: { children: ReactNode }) => {
     if (updates.condition !== undefined) dbUpdates.condition = updates.condition;
     if (updates.image !== undefined) dbUpdates.image = updates.image;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
+    if (updates.sold !== undefined) dbUpdates.sold = updates.sold;
 
     const { error } = await supabase
       .from('products')

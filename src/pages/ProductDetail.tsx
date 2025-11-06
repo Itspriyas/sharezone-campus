@@ -6,7 +6,7 @@ import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { MessageCircle, ArrowLeft, User, Phone, Mail } from 'lucide-react';
+import { MessageCircle, ArrowLeft, User, Star, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Product detail page - shows full information about a single product
@@ -87,10 +87,15 @@ const ProductDetail = () => {
             </div>
             
             {/* Badges */}
-            <div className="absolute top-4 right-4 flex gap-2">
+            <div className="absolute top-4 right-4 flex flex-col gap-2">
               <Badge className="bg-background/90 backdrop-blur">
                 {product.condition}
               </Badge>
+              {product.sold && (
+                <Badge className="bg-destructive/90 backdrop-blur text-destructive-foreground">
+                  Sold Out
+                </Badge>
+              )}
             </div>
           </div>
 
@@ -152,14 +157,28 @@ const ProductDetail = () => {
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
                     <User className="h-6 w-6 text-primary" />
                   </div>
-                  <div>
-                    <p className="font-medium">{product.sellerName}</p>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{product.sellerName}</p>
+                      {product.verifiedSeller && (
+                        <ShieldCheck className="h-4 w-4 text-primary" />
+                      )}
+                    </div>
                     <p className="text-sm text-muted-foreground">Campus Seller</p>
+                    
+                    {/* Seller rating */}
+                    {product.sellerReviews > 0 && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <Star className="h-4 w-4 fill-primary text-primary" />
+                        <span className="text-sm font-medium">{product.sellerRating.toFixed(1)}</span>
+                        <span className="text-xs text-muted-foreground">({product.sellerReviews} reviews)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 {/* Chat button */}
-                {user?.id !== product.sellerId && (
+                {user?.id !== product.sellerId && !product.sold && (
                   <Button
                     onClick={handleChat}
                     className="w-full gap-2"
@@ -168,6 +187,12 @@ const ProductDetail = () => {
                     <MessageCircle className="h-5 w-5" />
                     Chat with Seller
                   </Button>
+                )}
+                
+                {product.sold && user?.id !== product.sellerId && (
+                  <div className="text-center py-3 px-4 bg-muted rounded-lg">
+                    <p className="text-sm font-medium text-muted-foreground">This item has been sold</p>
+                  </div>
                 )}
 
                 {user?.id === product.sellerId && (

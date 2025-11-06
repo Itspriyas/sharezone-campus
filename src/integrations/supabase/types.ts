@@ -150,6 +150,7 @@ export type Database = {
           image: string
           price: number
           seller_id: string
+          sold: boolean | null
           status: string | null
           title: string
         }
@@ -162,6 +163,7 @@ export type Database = {
           image: string
           price: number
           seller_id: string
+          sold?: boolean | null
           status?: string | null
           title: string
         }
@@ -174,6 +176,7 @@ export type Database = {
           image?: string
           price?: number
           seller_id?: string
+          sold?: boolean | null
           status?: string | null
           title?: string
         }
@@ -195,6 +198,9 @@ export type Database = {
           id: string
           is_admin: boolean | null
           phone: string | null
+          seller_rating: number | null
+          total_reviews: number | null
+          verified_seller: boolean | null
         }
         Insert: {
           created_at?: string | null
@@ -203,6 +209,9 @@ export type Database = {
           id: string
           is_admin?: boolean | null
           phone?: string | null
+          seller_rating?: number | null
+          total_reviews?: number | null
+          verified_seller?: boolean | null
         }
         Update: {
           created_at?: string | null
@@ -211,6 +220,9 @@ export type Database = {
           id?: string
           is_admin?: boolean | null
           phone?: string | null
+          seller_rating?: number | null
+          total_reviews?: number | null
+          verified_seller?: boolean | null
         }
         Relationships: []
       }
