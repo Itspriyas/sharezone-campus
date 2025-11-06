@@ -3,6 +3,7 @@ import { useProducts } from '@/contexts/ProductContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import Navigation from '@/components/Navigation';
+import { RateSellerDialog } from '@/components/RateSellerDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -177,16 +178,31 @@ const ProductDetail = () => {
                   </div>
                 </div>
 
-                {/* Chat button */}
+                {/* Chat and Rate buttons */}
                 {user?.id !== product.sellerId && !product.sold && (
-                  <Button
-                    onClick={handleChat}
-                    className="w-full gap-2"
-                    size="lg"
-                  >
-                    <MessageCircle className="h-5 w-5" />
-                    Chat with Seller
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      onClick={handleChat}
+                      className="w-full gap-2"
+                      size="lg"
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                      Chat with Seller
+                    </Button>
+                    <RateSellerDialog 
+                      sellerId={product.sellerId}
+                      sellerName={product.sellerName}
+                      buyerId={user.id}
+                    />
+                  </div>
+                )}
+                
+                {user?.id !== product.sellerId && product.sold && (
+                  <RateSellerDialog 
+                    sellerId={product.sellerId}
+                    sellerName={product.sellerName}
+                    buyerId={user.id}
+                  />
                 )}
                 
                 {product.sold && user?.id !== product.sellerId && (

@@ -226,6 +226,33 @@ export type Database = {
         }
         Relationships: []
       }
+      seller_ratings: {
+        Row: {
+          buyer_id: string
+          comment: string | null
+          created_at: string
+          id: string
+          rating: number
+          seller_id: string
+        }
+        Insert: {
+          buyer_id: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating: number
+          seller_id: string
+        }
+        Update: {
+          buyer_id?: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating?: number
+          seller_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
