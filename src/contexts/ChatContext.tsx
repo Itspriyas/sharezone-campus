@@ -26,6 +26,7 @@ interface ChatContextType {
   messages: Message[];
   createConversation: (otherUserId: string, otherUserName: string, productId?: string, productTitle?: string) => Promise<string>;
   sendMessage: (conversationId: string, senderId: string, senderName: string, text: string) => Promise<void>;
+  deleteMessage: (messageId: string, conversationId: string) => Promise<void>;
   getConversation: (conversationId: string) => Conversation | undefined;
   getConversationMessages: (conversationId: string) => Promise<Message[]>;
   getUserConversations: (userId: string) => Conversation[];
@@ -217,6 +218,46 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     return conversations;
   };
 
+  const deleteMessage = async (messageId: string, conversationId: string) => {
+    if (!user) throw new Error('Must be logged in');
+
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+
+    if (error) throw error;
+
+    // Refresh messages for this conversation
+    const msgs = await fetchMessages(conversationId);
+    setMessages(prev => {
+      const filtered = prev.filter(m => m.conversationId !== conversationId);
+      return [...filtered, ...msgs];
+    });
+
+    // If this was the last message, update conversation
+    if (msgs.length > 0) {
+      const lastMsg = msgs[msgs.length - 1];
+      await supabase
+        .from('conversations')
+        .update({
+          last_message: lastMsg.text,
+          last_message_time: lastMsg.timestamp,
+        })
+        .eq('id', conversationId);
+    } else {
+      await supabase
+        .from('conversations')
+        .update({
+          last_message: null,
+          last_message_time: null,
+        })
+        .eq('id', conversationId);
+    }
+
+    await fetchConversations();
+  };
+
   return (
     <ChatContext.Provider
       value={{
@@ -224,6 +265,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         messages,
         createConversation,
         sendMessage,
+        deleteMessage,
         getConversation,
         getConversationMessages,
         getUserConversations,

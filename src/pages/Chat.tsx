@@ -7,14 +7,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, MessageCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Send, MessageCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Chat page - messaging between buyers and sellers
 const Chat = () => {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { getUserConversations, getConversation, getConversationMessages, sendMessage } = useChat();
+  const { getUserConversations, getConversation, getConversationMessages, sendMessage, deleteMessage } = useChat();
   
   // Get conversation ID from URL or select first conversation
   const conversationIdFromUrl = searchParams.get('conversation');
@@ -25,6 +35,8 @@ const Chat = () => {
 
   const [messageText, setMessageText] = useState('');
   const [messages, setMessages] = useState<any[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState<{ id: string; conversationId: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get current conversation
@@ -69,6 +81,28 @@ const Chat = () => {
   const getOtherPersonName = (conversation: any) => {
     const otherUserId = conversation.participants[0];
     return conversation.participantNames[otherUserId] || 'Unknown User';
+  };
+
+  // Handle delete message
+  const handleDeleteMessage = (messageId: string, conversationId: string) => {
+    setMessageToDelete({ id: messageId, conversationId });
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteMessage = async () => {
+    if (!messageToDelete) return;
+
+    try {
+      await deleteMessage(messageToDelete.id, messageToDelete.conversationId);
+      const msgs = await getConversationMessages(messageToDelete.conversationId);
+      setMessages(msgs);
+      toast.success('Message deleted');
+    } catch (error) {
+      toast.error('Failed to delete message');
+    } finally {
+      setDeleteDialogOpen(false);
+      setMessageToDelete(null);
+    }
   };
 
   return (
@@ -141,24 +175,36 @@ const Chat = () => {
                     {messages.map(message => (
                       <div
                         key={message.id}
-                        className={`flex ${
+                        className={`flex group ${
                           message.senderId === user?.id ? 'justify-end' : 'justify-start'
                         }`}
                       >
                         <div
-                          className={`max-w-[70%] rounded-lg p-3 ${
+                          className={`max-w-[70%] rounded-lg p-3 relative ${
                             message.senderId === user?.id
                               ? 'bg-primary text-primary-foreground'
                               : 'bg-muted'
                           }`}
                         >
                           <p className="text-sm break-words">{message.text}</p>
-                          <p className="text-xs opacity-75 mt-1">
-                            {new Date(message.timestamp).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </p>
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <p className="text-xs opacity-75">
+                              {new Date(message.timestamp).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                            {message.senderId === user?.id && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleDeleteMessage(message.id, message.conversationId)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -192,6 +238,22 @@ const Chat = () => {
           </Card>
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Message</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this message? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteMessage}>Yes</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
