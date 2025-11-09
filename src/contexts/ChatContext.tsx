@@ -9,6 +9,9 @@ export interface Message {
   senderName: string;
   text: string;
   timestamp: string;
+  imageUrl?: string;
+  editedAt?: string;
+  readAt?: string;
 }
 
 export interface Conversation {
@@ -25,11 +28,15 @@ interface ChatContextType {
   conversations: Conversation[];
   messages: Message[];
   createConversation: (otherUserId: string, otherUserName: string, productId?: string, productTitle?: string) => Promise<string>;
-  sendMessage: (conversationId: string, senderId: string, senderName: string, text: string) => Promise<void>;
+  sendMessage: (conversationId: string, senderId: string, senderName: string, text: string, imageUrl?: string) => Promise<void>;
+  editMessage: (messageId: string, newText: string) => Promise<void>;
   deleteMessage: (messageId: string, conversationId: string) => Promise<void>;
+  markAsRead: (messageId: string) => Promise<void>;
   getConversation: (conversationId: string) => Conversation | undefined;
   getConversationMessages: (conversationId: string) => Promise<Message[]>;
   getUserConversations: (userId: string) => Conversation[];
+  typingUsers: { [conversationId: string]: string[] };
+  setTyping: (conversationId: string, isTyping: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -45,6 +52,7 @@ export const useChat = () => {
 export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [typingUsers, setTypingUsers] = useState<{ [conversationId: string]: string[] }>({});
   const { user } = useAuth();
 
   const fetchConversations = async () => {
@@ -106,6 +114,9 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       senderName: m.profiles?.full_name || 'Unknown',
       text: m.text,
       timestamp: m.created_at,
+      imageUrl: m.image_url,
+      editedAt: m.edited_at,
+      readAt: m.read_at,
     }));
   };
 
@@ -176,7 +187,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     conversationId: string,
     senderId: string,
     senderName: string,
-    text: string
+    text: string,
+    imageUrl?: string
   ) => {
     if (!user) throw new Error('Must be logged in');
 
@@ -184,21 +196,65 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
       conversation_id: conversationId,
       sender_id: senderId,
       text,
+      image_url: imageUrl,
     });
 
     if (messageError) throw messageError;
 
     // Update conversation's last message
+    const displayText = imageUrl ? '📷 Image' : text;
     const { error: convError } = await supabase
       .from('conversations')
       .update({
-        last_message: text,
+        last_message: displayText,
         last_message_time: new Date().toISOString(),
       })
       .eq('id', conversationId);
 
     if (convError) throw convError;
     await fetchConversations();
+  };
+
+  const editMessage = async (messageId: string, newText: string) => {
+    if (!user) throw new Error('Must be logged in');
+
+    const { error } = await supabase
+      .from('messages')
+      .update({
+        text: newText,
+        edited_at: new Date().toISOString(),
+      })
+      .eq('id', messageId);
+
+    if (error) throw error;
+  };
+
+  const markAsRead = async (messageId: string) => {
+    if (!user) throw new Error('Must be logged in');
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', messageId)
+      .is('read_at', null);
+
+    if (error) throw error;
+  };
+
+  const setTyping = (conversationId: string, isTyping: boolean) => {
+    if (!user) return;
+
+    const channel = supabase.channel(`typing:${conversationId}`);
+
+    if (isTyping) {
+      channel.track({
+        user_id: user.id,
+        user_name: user.name,
+        typing: true,
+      });
+    } else {
+      channel.untrack();
+    }
   };
 
   const getConversation = (conversationId: string) => {
@@ -265,10 +321,14 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
         messages,
         createConversation,
         sendMessage,
+        editMessage,
         deleteMessage,
+        markAsRead,
         getConversation,
         getConversationMessages,
         getUserConversations,
+        typingUsers,
+        setTyping,
       }}
     >
       {children}

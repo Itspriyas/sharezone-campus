@@ -19,6 +19,7 @@ import ProductDetail from "./pages/ProductDetail";
 import SellerDashboard from "./pages/SellerDashboard";
 import Chat from "./pages/Chat";
 import Feedback from "./pages/Feedback";
+import Profile from "./pages/Profile";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
@@ -48,6 +49,8 @@ const App = () => (
                   <Route path="/seller-dashboard" element={<SellerDashboard />} />
                   <Route path="/chat" element={<Chat />} />
                   <Route path="/feedback" element={<Feedback />} />
+                  <Route path="/profile" element={<Profile />} />
+                  <Route path="/profile/:userId" element={<Profile />} />
                   
                   {/* Admin routes */}
                   <Route path="/admin-login" element={<AdminLogin />} />

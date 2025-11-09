@@ -3,10 +3,12 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChat } from '@/contexts/ChatContext';
 import Navigation from '@/components/Navigation';
+import { ChatMessage } from '@/components/ChatMessage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Label } from '@/components/ui/label';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,16 +19,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Send, MessageCircle, Trash2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { Send, MessageCircle, Image, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Chat page - messaging between buyers and sellers
 const Chat = () => {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { getUserConversations, getConversation, getConversationMessages, sendMessage, deleteMessage } = useChat();
+  const {
+    getUserConversations,
+    getConversation,
+    getConversationMessages,
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    markAsRead,
+    setTyping,
+  } = useChat();
   
-  // Get conversation ID from URL or select first conversation
   const conversationIdFromUrl = searchParams.get('conversation');
   const userConversations = user ? getUserConversations(user.id) : [];
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(
@@ -37,43 +48,161 @@ const Chat = () => {
   const [messages, setMessages] = useState<any[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState<{ id: string; conversationId: string } | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [typingTimeout, setTypingTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get current conversation
   const currentConversation = selectedConversationId ? getConversation(selectedConversationId) : null;
 
-  // Fetch messages when conversation changes
+  // Fetch messages and set up realtime
   useEffect(() => {
-    if (selectedConversationId) {
-      getConversationMessages(selectedConversationId).then(msgs => {
-        setMessages(msgs);
-      });
-    } else {
+    if (!selectedConversationId) {
       setMessages([]);
+      return;
     }
-  }, [selectedConversationId]);
+
+    getConversationMessages(selectedConversationId).then(msgs => {
+      setMessages(msgs);
+      
+      // Mark unread messages as read
+      msgs.forEach(msg => {
+        if (!msg.readAt && msg.senderId !== user?.id) {
+          markAsRead(msg.id);
+        }
+      });
+    });
+
+    // Realtime subscription for messages
+    const channel = supabase
+      .channel(`messages:${selectedConversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${selectedConversationId}`,
+        },
+        () => {
+          getConversationMessages(selectedConversationId).then(setMessages);
+        }
+      )
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const users = Object.values(state)
+          .flat()
+          .filter((presence: any) => presence.user_id !== user?.id)
+          .map((presence: any) => presence.user_name);
+        setTypingUsers(users);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedConversationId, user?.id]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Handle sending a message
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image must be less than 5MB');
+        return;
+      }
+      setSelectedImage(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
+  };
+
+  const uploadImage = async (file: File): Promise<string> => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `chat-images/${fileName}`;
+
+    const { error: uploadError, data } = await supabase.storage
+      .from('chat-images')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('chat-images')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!messageText.trim() || !user || !selectedConversationId) {
+    if ((!messageText.trim() && !selectedImage) || !user || !selectedConversationId) {
       return;
     }
 
     try {
-      await sendMessage(selectedConversationId, user.id, user.name, messageText.trim());
+      setUploading(true);
+      let imageUrl: string | undefined;
+
+      if (selectedImage) {
+        imageUrl = await uploadImage(selectedImage);
+      }
+
+      await sendMessage(
+        selectedConversationId,
+        user.id,
+        user.name,
+        messageText.trim() || '📷 Image',
+        imageUrl
+      );
+      
       setMessageText('');
-      // Refresh messages
+      setSelectedImage(null);
+      setImagePreview(null);
+      setTyping(selectedConversationId, false);
+      
       const msgs = await getConversationMessages(selectedConversationId);
       setMessages(msgs);
     } catch (error) {
       toast.error('Failed to send message');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleTyping = (text: string) => {
+    setMessageText(text);
+    
+    if (!selectedConversationId) return;
+
+    setTyping(selectedConversationId, text.length > 0);
+
+    if (typingTimeout) clearTimeout(typingTimeout);
+    
+    const timeout = setTimeout(() => {
+      setTyping(selectedConversationId, false);
+    }, 3000);
+    
+    setTypingTimeout(timeout);
+  };
+
+  const handleEditMessage = async (messageId: string, newText: string) => {
+    try {
+      await editMessage(messageId, newText);
+      const msgs = await getConversationMessages(selectedConversationId!);
+      setMessages(msgs);
+      toast.success('Message updated');
+    } catch (error) {
+      toast.error('Failed to update message');
     }
   };
 
@@ -83,9 +212,9 @@ const Chat = () => {
     return conversation.participantNames[otherUserId] || 'Unknown User';
   };
 
-  // Handle delete message
-  const handleDeleteMessage = (messageId: string, conversationId: string) => {
-    setMessageToDelete({ id: messageId, conversationId });
+  const handleDeleteMessage = (messageId: string) => {
+    if (!selectedConversationId) return;
+    setMessageToDelete({ id: messageId, conversationId: selectedConversationId });
     setDeleteDialogOpen(true);
   };
 
@@ -173,56 +302,75 @@ const Chat = () => {
                 <ScrollArea className="flex-1 p-4">
                   <div className="space-y-4">
                     {messages.map(message => (
-                      <div
+                      <ChatMessage
                         key={message.id}
-                        className={`flex group ${
-                          message.senderId === user?.id ? 'justify-end' : 'justify-start'
-                        }`}
-                      >
-                        <div
-                          className={`max-w-[70%] rounded-lg p-3 relative ${
-                            message.senderId === user?.id
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted'
-                          }`}
-                        >
-                          <p className="text-sm break-words">{message.text}</p>
-                          <div className="flex items-center justify-between gap-2 mt-1">
-                            <p className="text-xs opacity-75">
-                              {new Date(message.timestamp).toLocaleTimeString([], {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </p>
-                            {message.senderId === user?.id && (
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() => handleDeleteMessage(message.id, message.conversationId)}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                        message={message}
+                        isOwnMessage={message.senderId === user?.id}
+                        onDelete={handleDeleteMessage}
+                        onEdit={handleEditMessage}
+                      />
                     ))}
+                    {typingUsers.length > 0 && (
+                      <div className="text-sm text-muted-foreground italic">
+                        {typingUsers[0]} is typing...
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 </ScrollArea>
 
                 {/* Message input */}
-                <div className="p-4 border-t">
+                <div className="p-4 border-t space-y-2">
+                  {imagePreview && (
+                    <div className="relative inline-block">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="h-20 rounded-lg"
+                      />
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute -top-2 -right-2 h-6 w-6"
+                        onClick={() => {
+                          setSelectedImage(null);
+                          setImagePreview(null);
+                        }}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  )}
                   <form onSubmit={handleSendMessage} className="flex gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageSelect}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      <Image className="h-5 w-5" />
+                    </Button>
                     <Input
                       value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
+                      onChange={(e) => handleTyping(e.target.value)}
                       placeholder="Type your message..."
                       className="flex-1"
+                      disabled={uploading}
                     />
-                    <Button type="submit" size="icon">
-                      <Send className="h-5 w-5" />
+                    <Button type="submit" size="icon" disabled={uploading}>
+                      {uploading ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Send className="h-5 w-5" />
+                      )}
                     </Button>
                   </form>
                 </div>

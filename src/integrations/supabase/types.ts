@@ -105,21 +105,30 @@ export type Database = {
         Row: {
           conversation_id: string
           created_at: string | null
+          edited_at: string | null
           id: string
+          image_url: string | null
+          read_at: string | null
           sender_id: string
           text: string
         }
         Insert: {
           conversation_id: string
           created_at?: string | null
+          edited_at?: string | null
           id?: string
+          image_url?: string | null
+          read_at?: string | null
           sender_id: string
           text: string
         }
         Update: {
           conversation_id?: string
           created_at?: string | null
+          edited_at?: string | null
           id?: string
+          image_url?: string | null
+          read_at?: string | null
           sender_id?: string
           text?: string
         }
@@ -284,6 +293,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      delete_user_account: { Args: never; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

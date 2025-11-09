@@ -52,7 +52,7 @@ const handler = async (req: Request): Promise<Response> => {
     const html = type === 'registration'
       ? `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #1a1a1a;">Welcome to ShareSpace, ${name}!</h1>
+          <h1 style="color: #1a1a1a;">Welcome to ShareSpace, ${name}! 🎉</h1>
           <p style="color: #4a4a4a; font-size: 16px;">
             Your registration was successful! We're excited to have you join our campus marketplace community.
           </p>
@@ -73,14 +73,17 @@ const handler = async (req: Request): Promise<Response> => {
       `
       : `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #1a1a1a;">Welcome back, ${name}!</h1>
+          <h1 style="color: #1a1a1a;">Hello ${name}! 👋</h1>
           <p style="color: #4a4a4a; font-size: 16px;">
             You have successfully logged into your ShareSpace account.
           </p>
-          <p style="color: #4a4a4a; font-size: 16px;">
-            If you didn't attempt to log in, please secure your account immediately.
+          <p style="color: #777; font-size: 14px; margin-top: 20px;">
+            Login time: ${new Date().toLocaleString()}
           </p>
-          <p style="color: #4a4a4a; font-size: 16px;">
+          <p style="color: #999; font-size: 14px; margin-top: 10px;">
+            If this wasn't you, please secure your account immediately by changing your password.
+          </p>
+          <p style="color: #4a4a4a; font-size: 16px; margin-top: 20px;">
             Best regards,<br>
             The ShareSpace Team
           </p>

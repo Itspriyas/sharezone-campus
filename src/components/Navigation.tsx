@@ -76,6 +76,7 @@ const Navigation = () => {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => navigate('/profile')}
                 className="gap-2"
               >
                 <User className="h-4 w-4" />
